@@ -36,3 +36,27 @@ byte digits[10][7] = {{0,1,1,1,1,1,1},  // číslo 0
 /*-----KOMUNIKÁCIA-SO-SNÍMAČOM-TEPLOTY------*/
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
+
+
+/*-----------DEFINÍCIA-FARIEB---------------*/
+long ColorTable[16] = {
+  CRGB::Amethyst,
+  CRGB::Aqua,
+  CRGB::Blue,
+  CRGB::Chartreuse,
+  CRGB::DarkGreen,
+  CRGB::DarkMagenta,
+  CRGB::DarkOrange,
+  CRGB::DeepPink,
+  CRGB::Fuchsia,
+  CRGB::Gold,
+  CRGB::GreenYellow,
+  CRGB::LightCoral,
+  CRGB::Tomato,
+  CRGB::Salmon,
+  CRGB::Red,
+  CRGB::Orchid
+};
+
+/*-----------VÝBER-FARBY--------------------*/
+long ledColor = CRGB::Red;
