@@ -18,3 +18,17 @@ RTC_DS3231 rtc;
 #define HUR_PIN 5  // tlačidlo na nastavenie hodín
 #define BRI_PIN 3  // photorezistor na snimanie svetla
 #define ONE_WIRE_BUS 9 // Data kabel na spojenie so snímačom teploty
+
+/*-----------DEFINÍCIA-ZNAKOV------------*/
+byte digits[10][7] = {{0,1,1,1,1,1,1},  // číslo 0
+                     {0,1,0,0,0,0,1},   // číslo 1
+                     {1,1,1,0,1,1,0},   // číslo 2
+                     {1,1,1,0,0,1,1},   // číslo 3
+                     {1,1,0,1,0,0,1},   // číslo 4
+                     {1,0,1,1,0,1,1},   // číslo 5
+                     {1,0,1,1,1,1,1},   // číslo 6
+                     {0,1,1,0,0,0,1},   // číslo 7
+                     {1,1,1,1,1,1,1},   // číslo 8
+                     {1,1,1,1,0,1,1},   // číslo 9
+                     {1,1,1,1,1,1,1},   // znak * (stupne)
+                     {1,1,1,1,1,1,1},}; // znak C
