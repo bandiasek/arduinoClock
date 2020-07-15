@@ -32,3 +32,7 @@ byte digits[10][7] = {{0,1,1,1,1,1,1},  // číslo 0
                      {1,1,1,1,0,1,1},   // číslo 9
                      {1,1,1,1,1,1,1},   // znak * (stupne)
                      {1,1,1,1,1,1,1},}; // znak C
+
+/*-----KOMUNIKÁCIA-SO-SNÍMAČOM-TEPLOTY------*/
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
