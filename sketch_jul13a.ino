@@ -20,7 +20,7 @@ RTC_DS3231 rtc;
 #define ONE_WIRE_BUS 3 // Data kabel na spojenie so snímačom teploty
 
 /*-----------DEFINÍCIA-ZNAKOV------------*/
-byte digits[12][7] = {{0,1,1,1,1,1,1},  // číslo 0
+byte digits[13][7] = {{0,1,1,1,1,1,1},  // číslo 0
                      {0,1,0,0,0,0,1},   // číslo 1
                      {1,1,1,0,1,1,0},   // číslo 2
                      {1,1,1,0,0,1,1},   // číslo 3
@@ -31,7 +31,8 @@ byte digits[12][7] = {{0,1,1,1,1,1,1},  // číslo 0
                      {1,1,1,1,1,1,1},   // číslo 8
                      {1,1,1,1,0,1,1},   // číslo 9
                      {1,1,1,1,0,0,0},   // znak * (stupne)
-                     {0,0,1,1,1,1,0},}; // znak C
+                     {0,0,1,1,1,1,0},   // znak C
+                     {0,0,0,0,0,0,0},}; // prazdny znak
 
 /*-----KOMUNIKÁCIA-SO-SNÍMAČOM-TEPLOTY------*/
 OneWire oneWire(ONE_WIRE_BUS);
@@ -207,7 +208,8 @@ void FormatTime(){
       cursor = 0;
       
       for(int k=0; k<=6;k++){ 
-        if(Now >= 1){
+        //zaisti vykreslovanie prazdneho znaku
+        if(Now < 1){ digit = 12; }
           if (digits[digit][k]== 1){
               leds[cursor]=ledColor;
             
@@ -216,7 +218,6 @@ void FormatTime(){
                 
                 };
            cursor ++;
-           };
         };
       }
     Now /= 10;
