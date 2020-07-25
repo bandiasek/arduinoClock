@@ -40,23 +40,10 @@ DallasTemperature sensors(&oneWire);
 
 
 /*-----------DEFINÍCIA-FARIEB---------------*/
-long ColorTable[16] = {
-  CRGB::Amethyst,
-  CRGB::Aqua,
-  CRGB::Blue,
-  CRGB::Chartreuse,
-  CRGB::DarkGreen,
-  CRGB::DarkMagenta,
-  CRGB::DarkOrange,
-  CRGB::DeepPink,
-  CRGB::Fuchsia,
-  CRGB::Gold,
-  CRGB::GreenYellow,
-  CRGB::LightCoral,
-  CRGB::Tomato,
-  CRGB::Salmon,
+long ColorTable[3] = {
   CRGB::Red,
-  CRGB::Orchid
+  CRGB::Green,
+  CRGB::Blue
 };
 
 /*-----------VÝBER-FARBY--------------------*/
@@ -72,6 +59,11 @@ CRGB leds[NUM_LEDS];
 bool Dot = true;  //Stav dvojbodky
 bool DST = true; //Šetrič (Daylight saving time)
 bool TempShow = false; //Ukazovanie teploty 
+
+const long intervalColor = 5000;
+float prevMillis = 0;
+int indexOfColor = 0;
+
 
 
 
@@ -135,7 +127,36 @@ void BrightnessCheck(){
       }
   
   };
+
+
+/*-----------FUNKCIA-NA-MENENIE-FARIEB-------------------------*/
+void ColorChange(){
   
+  //definícia millis
+  long currMillis = millis();
+
+  if (currMillis - prevMillis >= intervalColor ){
+  
+  //prepisanie millis
+      prevMillis = currMillis;
+
+    if(indexOfColor > 2){
+
+        indexOfColor = 0;
+      }
+
+    //prepisanie farby
+      ledColor = ColorTable[indexOfColor];
+      dotColor = ColorTable[indexOfColor];
+
+    //zaistenie zmeny farby podla indexu
+      indexOfColor++;
+      
+    }
+
+  
+  
+  };
   
 /*-----------FUNKCIA-NA-PREMENU-ČASU-NA-POLE----------------------*/
 void FormatTime(){
@@ -233,7 +254,7 @@ void TempToArray(){
   RTC.read(tm);
 
 // Samotný prepočet času a riešenie koľko sa bude ukazovať teplota
-  if (tm.Second != 5) { 
+  if (tm.Second != 20) { 
           
       return;                    
     }
@@ -368,8 +389,9 @@ void DSTcheck(){
     TimeAdjust(); // Zistenie či sa nezmenil čas
     FormatTime(); // Formatovanie casu a nastavenie led
     TempToArray(); // Spracovavanie teploty
+    ColorChange(); // Zmeny farby po intervale
     FastLED.show(); // Ukázanie / zasvietenie led
     // cislo 5000 znamena ako dlho bude ukazana teplota
-    if (TempShow == true) delay (7500);
+    if (TempShow == true) delay (5000);
     TempShow = false;
    }
