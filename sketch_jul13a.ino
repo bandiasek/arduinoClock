@@ -1,15 +1,20 @@
-/*-----------POUITÉ-KNIŽNICE------------*/
-#include <DS3232RTC.h>
-#include <RTClib.h> //
-#include <Time.h> 
+// https://simple-circuit.com/arduino-gps-clock-local-time-neo-6m/
+
+/*-----------POUZITÉ-KNIŽNICE------------*/
+#include <TinyGPS++.h> 
 #include <TimeLib.h>
-#include <FastLED.h> //
+#include <SoftwareSerial.h>
+
+#include <DS3232RTC.h>
+#include <Time.h> 
+#include <FastLED.h> 
 #include <OneWire.h> 
 #include <DallasTemperature.h>
 
-RTC_DS3231 rtc;
-
 /*-----------DEFINÍCIA-PINOV------------*/
+#define S_RX 12     // define software serial RX pin
+#define S_TX 10   // define software serial TX pin
+#define time_offset   3600  // define a clock offset of 3600 seconds (1 hour) ==> UTC + 1 ?? neviem preco
 #define NUM_LEDS 29 // počet led pásikov v hodinách (4*7 + 1..dvojbodka v strede)
 #define COLOR_ORDER BRG  // poradie farieb
 #define DST_PIN 2  // tlacidlo na nastavovanie daylight-saving-time
@@ -18,7 +23,6 @@ RTC_DS3231 rtc;
 #define DATA_PIN 6  // pin na prenos dat
 #define BRI_PIN 0  // photorezistor na snimanie svetla
 #define ONE_WIRE_BUS 3 // Data kabel na spojenie so snímačom teploty
-
 /*-----------DEFINÍCIA-ZNAKOV------------*/
 byte digits[13][7] = {{0,1,1,1,1,1,1},  // číslo 0
                      {0,1,0,0,0,0,1},   // číslo 1
@@ -34,10 +38,13 @@ byte digits[13][7] = {{0,1,1,1,1,1,1},  // číslo 0
                      {0,0,1,1,1,1,0},   // znak C
                      {0,0,0,0,0,0,0},}; // prazdny znak
 
-/*-----KOMUNIKÁCIA-SO-SNÍMAČOM-TEPLOTY------*/
+/*-----KOMUNIKÁCIA-SO-SNÍMAČOM-TEPLOTY + Ine instancie------*/
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
+DS3232RTC rtc;
+TinyGPSPlus gps;
+SoftwareSerial SoftSerial(S_RX, S_TX);
 
 /*-----------DEFINÍCIA-FARIEB---------------*/
 long ColorTable[3] = {
@@ -56,54 +63,42 @@ CRGB leds[NUM_LEDS];
 
 
 /*-----------DEFINÍCIA-PREMENNÝCH-----------*/
-bool Dot = true;  //Stav dvojbodky
-bool DST = true; //Šetrič (Daylight saving time)
-bool TempShow = false; //Ukazovanie teploty 
+byte prev_hour, temp_started_showing, Second, Minute, Hour, Day, Month;
+int Year;
 
-const long intervalColor = 5000;
-float prevMillis = 0;
+const long intervalColor = 30000; //menenie farieb internval
+float prevColorMillis = 0;
 int indexOfColor = 0;
 
+const long intervalTemp = 90000; //Each 90 sec show temp
+const long intervalShowTempFor = 10000; // show temp for 10 sec
+float prevTempMillis = 0;
 
-
+/*-----------FLAGS-----------*/
+bool DST = true; //Šetrič (Daylight saving time)
+bool TempShow = false; //Ukazovanie teploty 
+bool Dot = true;  //Stav dvojbodky
+bool TimeSynced = false; // GPS synced time
 
 /*-----------FUNKCIA-SETUP-PREBEHNE-LEN-RAZ-*/
 void setup(){ 
-  Serial.begin(9600); 
-  
+  SoftSerial.begin(9600);
+  Serial.begin(115200); 
+
+  TempShow = false; // Nastavenie ukazovania teploty na log 0, aby sa prvé ukázal čas
   LEDS.addLeds<WS2812, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS); //Nastavenie typu led pásiku
   LEDS.setBrightness(75); // Nastavenie Jasu
-  
-  pinMode(DST_PIN, INPUT_PULLUP); // Tlačidlo na preínanie šetriacého režimu
-  pinMode(MIN_PIN, INPUT_PULLUP); // Tlačidlo na prepínanie minút
-  pinMode(HUR_PIN, INPUT_PULLUP); // Tlačidlo na prepínanie hodín
-  
-  TempShow = false; // Nastavenie ukazovania teploty na log 0, aby sa prvé ukázal čas
-  
+
   sensors.begin();
   sensors.requestTemperatures(); // Začne sa žiadať teplota z RTC
+
+//  Prepinanie hodin je vypnute kvoli gps
+//  pinMode(DST_PIN, INPUT_PULLUP); // Tlačidlo na preínanie šetriacého režimu
+//  pinMode(MIN_PIN, INPUT_PULLUP); // Tlačidlo na prepínanie minút
+//  pinMode(HUR_PIN, INPUT_PULLUP); // Tlačidlo na prepínanie hodín
+  Serial.println("Lets begin!");
 } 
 
-/*-----------FUNKCIA-NA-ZÍSKANIE-ČASU-A-BLIKANIE-DVOJBODKY-V-STREDE------*/
-/*-----------PREMENA-ČASOVÉEHO-FORMÁTU-Z-0155-NA-155---------------------*/
-int GetTime(){
-  tmElements_t Now;
-  RTC.read(Now);
-  
-  int hour = Now.Hour;
-  int minutes = Now.Minute;
-  int second = Now.Second;
-  
-  if (second % 2==0) {
-      Dot = false;
-      } else {
-        Dot = true;
-        BrightnessCheck(); // Zistenie svetla + nastavenie ak je DST true
-       };
-       
-  return (hour*100+minutes);
-  };
-  
 
 /*-----------FUNKCIA-NA-ZÍSKANIE-SVETLA-V-OKOLÍ--------------------------*/
 void BrightnessCheck(){
@@ -115,30 +110,24 @@ void BrightnessCheck(){
   int sensorValue = analogRead(sensorPin); 
   sensorValue = map(sensorValue, 10, 900, 255, 40);
   
-  //výpis na konzolu
-  Serial.print("Jas bude: ");
-  Serial.println(sensorValue);
-  
   //nastavenie jasu ak je DST povolene
   if(DST){
     LEDS.setBrightness(sensorValue);
-    } else {
-        LEDS.setBrightness(180);
-      }
-  
+  } else {
+    LEDS.setBrightness(180);
+  }
   };
 
 
 /*-----------FUNKCIA-NA-MENENIE-FARIEB-------------------------*/
 void ColorChange(){
-  
   //definícia millis
   long currMillis = millis();
 
-  if (currMillis - prevMillis >= intervalColor ){
+  if (currMillis - prevColorMillis >= intervalColor ){
   
   //prepisanie millis
-      prevMillis = currMillis;
+      prevColorMillis = currMillis;
 
     if(indexOfColor > 2){
 
@@ -153,16 +142,24 @@ void ColorChange(){
       indexOfColor++;
       
     }
-
-  
-  
   };
+
+void showTempCheck(){
+  //definícia millis
+  long currMillis = millis();
+
+  if (currMillis - prevTempMillis >= intervalTemp ){
+    //prepisanie millis
+    prevTempMillis = currMillis;
+    TempShow = true;
+  }
+ };
   
 /*-----------FUNKCIA-NA-PREMENU-ČASU-NA-POLE----------------------*/
 void FormatTime(){
   
   //Získanie času z hornej funkcie
-  int Now = GetTime();
+  int Now = (hour()*100) + minute();
   //cursor je posledna led, v nášom prípade ich máme 29
   int cursor = 29;  
 
@@ -247,28 +244,10 @@ void FormatTime(){
 
 
 /*-----------FUNKCIA-NA-UKAZANIE-A-FORMATOVANIE-TEPLOTY-------------------*/
-void TempToArray(){
-  tmElements_t tm;
-
-// Získanie času na prepočet času
-  RTC.read(tm);
-
-// Samotný prepočet času a riešenie koľko sa bude ukazovať teplota
-  if (tm.Second != 20) { 
-          
-      return;                    
-    }
-    TempShow = true;
-    
-  // Poslanie príkazu na čítanie teploty
-  sensors.requestTemperatures(); 
-  
+void TempToArray(){  
+  sensors.requestTemperatures();
   int celsius = sensors.getTempCByIndex(0);
-
-  // Výpis na konzolu
-  Serial.print("Temp is: ");
-  Serial.println(celsius);
-
+  
   // nastavenie poslednej led, plus zhasnutie dvojbodky
   int cursor = 29; 
   leds[14] = 0x000000;
@@ -341,57 +320,135 @@ void TempToArray(){
            };
       }
   }
+  
+  // .. Afterr showing temperature will be reseted
 };
 
 /*-----------FUNKCIA-NA-SNÍMANIE-DST-TLACIDLA----------------------*/
-void DSTcheck(){
-   int buttonDST = digitalRead(2);
-   if (buttonDST == LOW){
-    if (DST){
-      dotColor = CRGB::Gold;
-      DST=false;
-      }
-      else if (!DST){
-        dotColor = CRGB::Red;
-        DST=true;
-      };
-   delay(500);   
-   };
-  }
+//void DSTcheck(){
+////   int buttonDST = digitalRead(2);
+//   int buttonDST = HIGH; // Temporary disabling of dst
+//   if (buttonDST == LOW){
+//      DST = !DST;
+//      dotColor = DST ? CRGB::Gold : CRGB::Red;
+//      Serial.println(dotColor);
+//      delay(3000);   
+//   };
+//  }
 
 
 /*-----------FUNKCIA-NA-SNÍMANIE-UPRAVOVACÍCH-TLAČIDIEL----------------------*/
- void TimeAdjust(){
-  int buttonH = digitalRead(HUR_PIN);
-  int buttonM = digitalRead(MIN_PIN);
-  if (buttonH == LOW || buttonM == LOW){
-    delay(500);
-    tmElements_t Now;
-    RTC.read(Now);
-    int hour=Now.Hour;
-    int minutes=Now.Minute;
-    int second =Now.Second;
-      if (buttonH == LOW){
-        if (Now.Hour== 23){Now.Hour=0;}
-          else {Now.Hour += 1;};
-        }else {
-          if (Now.Minute== 59){Now.Minute=0;}
-          else {Now.Minute += 1;};
-          };
-    RTC.write(Now); 
+// void TimeAdjust(){
+//  int buttonH = digitalRead(HUR_PIN);
+//  int buttonM = digitalRead(MIN_PIN);
+//  if (buttonH == LOW || buttonM == LOW){
+//    delay(500);
+//    tmElements_t Now;
+//    RTC.read(Now);
+//    int hour=Now.Hour;
+//    int minutes=Now.Minute;
+//    int second =Now.Second;
+//      if (buttonH == LOW){
+//        if (Now.Hour== 23){Now.Hour=0;}
+//          else {Now.Hour += 1;};
+//        }else {
+//          if (Now.Minute== 59){Now.Minute=0;}
+//          else {Now.Minute += 1;};
+//          };
+//    RTC.write(Now); 
+//    }
+//  }
+
+
+void syncGPSTime() {
+  while (!TimeSynced && SoftSerial.available() > 0){
+      // Precitanie cosu faunoveho
+      if (gps.encode(SoftSerial.read())){
+        
+        // .. Get Time from gps module
+        if (gps.time.isValid()){
+          Minute = gps.time.minute();
+          Second = gps.time.second();
+          Hour   = gps.time.hour();
+        }
+
+        // .. Get date drom GPS module
+        if (gps.date.isValid()){
+           Day   = gps.date.day();
+           Month = gps.date.month();
+           Year  = gps.date.year();
+        }
+
+        // ..
+        if(Day && Second){  
+          prev_hour = Hour;
+          
+          // set current UTC time
+          setTime(Hour, Minute, Second, Day, Month, Year);
+          adjustTime(time_offset);
+          
+          Serial.println("Time sucessfully sinced");
+          TimeSynced = true;
+        }
+       }
+    }  
+}
+
+  // Vypis cas kazdu minutu
+  byte prev_minute = 0;
+  void serialPrintTime(){
+    if(prev_minute != minute()){
+        prev_minute = minute();
+      
+        Serial.print(hour());
+        Serial.print(":");
+        Serial.print(minute());
+        Serial.print(":");
+        Serial.println(second());
     }
   }
 
+  void serialPrintTemperature(){
+     Serial.print(sensors.getTempCByIndex(0));
+     Serial.println(" Stupnov");
+  }
 
-  void loop()
-  { 
-    DSTcheck(); // Zistenie tlačidla DST
-    TimeAdjust(); // Zistenie či sa nezmenil čas
-    FormatTime(); // Formatovanie casu a nastavenie led
-    TempToArray(); // Spracovavanie teploty
-    ColorChange(); // Zmeny farby po intervale
-    FastLED.show(); // Ukázanie / zasvietenie led
-    // cislo 5000 znamena ako dlho bude ukazana teplota
-    if (TempShow == true) delay (5000);
-    TempShow = false;
+
+  void loop(){
+     // .. Ensure dot is flashing
+     if(second() % 2 == 0){
+        Dot = false;
+     } else {
+        Dot = true;
+     }
+
+     // .. Decide to sync every hour
+     if(prev_hour != (hour() - time_offset / 3600)){
+      TimeSynced = false; 
+     }
+
+     // .. Main loop
+     if(TimeSynced){
+        BrightnessCheck();
+        ColorChange();
+        showTempCheck();
+
+        // ..
+        if(TempShow == true){
+          long currMillis = millis();
+          if(currMillis - prevTempMillis >= intervalShowTempFor ) TempShow = false;
+          
+          TempToArray();
+          //serialPrintTemperature();
+
+        } else {
+          FormatTime();
+          serialPrintTime();
+        } 
+      
+        LEDS.show();   
+     } else {
+      // .. Sync the time through GPS
+      syncGPSTime();
+     }
    }
