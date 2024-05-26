@@ -14,15 +14,19 @@
 /*-----------DEFINÍCIA-PINOV------------*/
 #define S_RX 12     // define software serial RX pin
 #define S_TX 10   // define software serial TX pin
-#define time_offset   3600  // define a clock offset of 3600 seconds (1 hour) ==> UTC + 1 ?? neviem preco
+#define WINTER_OFFSET 3600  // define a clock offset of 3600 seconds (1 hour) ==> UTC + 1 ?? neviem preco
+#define SUMMER_OFFSET 7200  // define a clock offset of 3600 seconds (1 hour) ==> UTC + 1 ?? neviem preco
 #define NUM_LEDS 29 // počet led pásikov v hodinách (4*7 + 1..dvojbodka v strede)
 #define COLOR_ORDER BRG  // poradie farieb
-#define DST_PIN 2  // tlacidlo na nastavovanie daylight-saving-time
-#define MIN_PIN 4  // tlacidlo na nastavenie minút
-#define HUR_PIN 5  // tlačidlo na nastavenie hodín
+//#define DST_PIN 2  // tlacidlo na nastavovanie daylight-saving-time
+//#define MIN_PIN 4  // tlacidlo na nastavenie minút
+//#define HUR_PIN 5  // tlačidlo na nastavenie hodín
 #define DATA_PIN 6  // pin na prenos dat
 #define BRI_PIN 0  // photorezistor na snimanie svetla
 #define ONE_WIRE_BUS 3 // Data kabel na spojenie so snímačom teploty
+
+#define SUMMER_TIME_BUTTON 2 // Pin na nastavenie posunutia casu +
+
 /*-----------DEFINÍCIA-ZNAKOV------------*/
 byte digits[13][7] = {{0,1,1,1,1,1,1},  // číslo 0
                      {0,1,0,0,0,0,1},   // číslo 1
@@ -63,6 +67,7 @@ CRGB leds[NUM_LEDS];
 
 
 /*-----------DEFINÍCIA-PREMENNÝCH-----------*/
+int time_offset = WINTER_OFFSET;
 byte prev_hour, temp_started_showing, Second, Minute, Hour, Day, Month;
 int Year;
 
@@ -96,6 +101,8 @@ void setup(){
 //  pinMode(DST_PIN, INPUT_PULLUP); // Tlačidlo na preínanie šetriacého režimu
 //  pinMode(MIN_PIN, INPUT_PULLUP); // Tlačidlo na prepínanie minút
 //  pinMode(HUR_PIN, INPUT_PULLUP); // Tlačidlo na prepínanie hodín
+
+  pinMode(SUMMER_TIME_BUTTON, INPUT);
   Serial.println("Lets begin!");
 } 
 
@@ -156,10 +163,7 @@ void showTempCheck(){
  };
   
 /*-----------FUNKCIA-NA-PREMENU-ČASU-NA-POLE----------------------*/
-void FormatTime(){
-  
-  //Získanie času z hornej funkcie
-  int Now = (hour()*100) + minute();
+void FormatTime(int Now){
   //cursor je posledna led, v nášom prípade ich máme 29
   int cursor = 29;  
 
@@ -362,6 +366,7 @@ void TempToArray(){
 
 void syncGPSTime() {
   while (!TimeSynced && SoftSerial.available() > 0){
+      Serial.println("Syncing");
       // Precitanie cosu faunoveho
       if (gps.encode(SoftSerial.read())){
         
@@ -380,15 +385,18 @@ void syncGPSTime() {
         }
 
         // ..
-        if(Day && Second){  
+        if(Day != -1 && Hour != prev_hour){  
           prev_hour = Hour;
           
           // set current UTC time
           setTime(Hour, Minute, Second, Day, Month, Year);
-          adjustTime(time_offset);
-          
-          Serial.println("Time sucessfully sinced");
+          adjustTime(time_offset -1);
+
+          Serial.println("Time sucessfully synced");
           TimeSynced = true;
+
+          Day = -1;
+          Hour = -1;
         }
        }
     }  
@@ -415,11 +423,25 @@ void syncGPSTime() {
 
 
   void loop(){
+     // .. Handle offset of a clocks
+     if(digitalRead(SUMMER_TIME_BUTTON)== HIGH && time_offset != SUMMER_OFFSET){
+      time_offset = SUMMER_OFFSET;
+     }
+
+     if(digitalRead(SUMMER_TIME_BUTTON)== LOW && time_offset != WINTER_OFFSET){
+      time_offset = SUMMER_OFFSET;
+     }
+    
      // .. Ensure dot is flashing
      if(second() % 2 == 0){
         Dot = false;
      } else {
         Dot = true;
+     }
+
+     // .. Removing delay caused by system
+     if(second() % 58 == 0){
+        adjustTime(1);
      }
 
      // .. Decide to sync every hour
@@ -442,8 +464,8 @@ void syncGPSTime() {
           //serialPrintTemperature();
 
         } else {
-          FormatTime();
           serialPrintTime();
+          FormatTime((hour()*100) + minute());
         } 
       
         LEDS.show();   
