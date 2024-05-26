@@ -19,7 +19,6 @@
 #define SYNC_TIME 30000 // Time which willing to wait for syncing
 #define NUM_LEDS 29 // počet led pásikov v hodinách (4*7 + 1..dvojbodka v strede)
 #define COLOR_ORDER BRG  // poradie farieb
-//#define DST_PIN 2  // tlacidlo na nastavovanie daylight-saving-time
 //#define MIN_PIN 4  // tlacidlo na nastavenie minút
 //#define HUR_PIN 5  // tlačidlo na nastavenie hodín
 #define DATA_PIN 6  // pin na prenos dat
@@ -27,6 +26,7 @@
 #define ONE_WIRE_BUS 3 // Data kabel na spojenie so snímačom teploty
 
 #define SUMMER_TIME_BUTTON 2 // Pin na nastavenie posunutia casu +
+#define STATIC_BRIGHTNESS 4  // tlacidlo na nastavovanie daylight-saving-time
 
 /*-----------DEFINÍCIA-ZNAKOV------------*/
 byte digits[13][7] = {{0,1,1,1,1,1,1},  // číslo 0
@@ -103,6 +103,7 @@ void setup(){
 //  pinMode(HUR_PIN, INPUT_PULLUP); // Tlačidlo na prepínanie hodín
 
   pinMode(SUMMER_TIME_BUTTON, INPUT);
+  pinMode(STATIC_BRIGHTNESS, INPUT);
   Serial.println("Lets begin!");
 } 
 
@@ -386,6 +387,17 @@ void ledPrintTemperature(){
     }
   }
 
+  // .. Handle DST (DynamicBrightness)
+  void handleDSTChange() {
+    if(digitalRead(STATIC_BRIGHTNESS)== LOW && !DST){
+      DST = true;
+    }
+
+    if(digitalRead(STATIC_BRIGHTNESS)== HIGH && DST){
+      DST = false;
+    }
+  }
+
   // .. Handle brightness check
   void handleBrightnessChange(){
     const byte sensorPin = BRI_PIN; // light sensor pin
@@ -445,6 +457,8 @@ void ledPrintTemperature(){
    */
   void loop(){
     handleTimeOffsetChange();
+    handleDSTChange();
+
     handleBrightnessChange();
     handleColorChange();
 
