@@ -16,6 +16,7 @@
 #define S_TX 10   // define software serial TX pin
 #define WINTER_OFFSET 3600  // define a clock offset of 3600 seconds (1 hour) ==> UTC + 1 ?? neviem preco
 #define SUMMER_OFFSET 7200  // define a clock offset of 3600 seconds (1 hour) ==> UTC + 1 ?? neviem preco
+#define SYNC_TIME 30000 // Time which willing to wait for syncing
 #define NUM_LEDS 29 // počet led pásikov v hodinách (4*7 + 1..dvojbodka v strede)
 #define COLOR_ORDER BRG  // poradie farieb
 //#define DST_PIN 2  // tlacidlo na nastavovanie daylight-saving-time
@@ -68,7 +69,8 @@ CRGB leds[NUM_LEDS];
 
 /*-----------DEFINÍCIA-PREMENNÝCH-----------*/
 int time_offset = WINTER_OFFSET;
-byte prev_hour, temp_started_showing, Second, Minute, Hour, Day, Month;
+time_t prevDisplay = 0; 
+byte Second, Minute, Hour, Day, Month;
 int Year;
 
 const long intervalColor = 30000; //menenie farieb internval
@@ -81,16 +83,14 @@ float prevTempMillis = 0;
 
 /*-----------FLAGS-----------*/
 bool DST = true; //Šetrič (Daylight saving time)
-bool TempShow = false; //Ukazovanie teploty 
 bool Dot = true;  //Stav dvojbodky
-bool TimeSynced = false; // GPS synced time
+bool ShowingTemp = false; // Stav Teploty
 
 /*-----------FUNKCIA-SETUP-PREBEHNE-LEN-RAZ-*/
 void setup(){ 
   SoftSerial.begin(9600);
   Serial.begin(115200); 
 
-  TempShow = false; // Nastavenie ukazovania teploty na log 0, aby sa prvé ukázal čas
   LEDS.addLeds<WS2812, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS); //Nastavenie typu led pásiku
   LEDS.setBrightness(75); // Nastavenie Jasu
 
@@ -106,74 +106,22 @@ void setup(){
   Serial.println("Lets begin!");
 } 
 
-
-/*-----------FUNKCIA-NA-ZÍSKANIE-SVETLA-V-OKOLÍ--------------------------*/
-void BrightnessCheck(){
+/**
+ * @brief Printesrs for LEDs
+ * Theese functions are suppose to prepare leds to be printed
+ */
   
-  //definícia pinu
-  const byte sensorPin = BRI_PIN; // light sensor pin
-
-  //načítanie jasu + formovanie do potrebnej hodnoty
-  int sensorValue = analogRead(sensorPin); 
-  sensorValue = map(sensorValue, 10, 900, 255, 40);
-  
-  //nastavenie jasu ak je DST povolene
-  if(DST){
-    LEDS.setBrightness(sensorValue);
-  } else {
-    LEDS.setBrightness(180);
-  }
-  };
-
-
-/*-----------FUNKCIA-NA-MENENIE-FARIEB-------------------------*/
-void ColorChange(){
-  //definícia millis
-  long currMillis = millis();
-
-  if (currMillis - prevColorMillis >= intervalColor ){
-  
-  //prepisanie millis
-      prevColorMillis = currMillis;
-
-    if(indexOfColor > 2){
-
-        indexOfColor = 0;
-      }
-
-    //prepisanie farby
-      ledColor = ColorTable[indexOfColor];
-      dotColor = ColorTable[indexOfColor];
-
-    //zaistenie zmeny farby podla indexu
-      indexOfColor++;
-      
-    }
-  };
-
-void showTempCheck(){
-  //definícia millis
-  long currMillis = millis();
-
-  if (currMillis - prevTempMillis >= intervalTemp ){
-    //prepisanie millis
-    prevTempMillis = currMillis;
-    TempShow = true;
-  }
- };
-  
-/*-----------FUNKCIA-NA-PREMENU-ČASU-NA-POLE----------------------*/
-void FormatTime(int Now){
+// .. Funkcia na vypisanie casu na ledkach
+void ledPrintTime(int Now){
   //cursor je posledna led, v nášom prípade ich máme 29
   int cursor = 29;  
 
   // Blikanie dvojbodky
   if (Dot){
     leds[14]=dotColor;   
-  }
-    else  {
-      leds[14]=0x000000;
-    };
+  } else  {
+    leds[14]=0x000000;
+  };
 
   //Zaciatok cyklu pre Led 
   for(int i=1;i<=4;i++){
@@ -247,8 +195,8 @@ void FormatTime(int Now){
 };
 
 
-/*-----------FUNKCIA-NA-UKAZANIE-A-FORMATOVANIE-TEPLOTY-------------------*/
-void TempToArray(){  
+// .. Funkcia na ukazanie teploty
+void ledPrintTemperature(){  
   sensors.requestTemperatures();
   int celsius = sensors.getTempCByIndex(0);
   
@@ -328,149 +276,196 @@ void TempToArray(){
   // .. Afterr showing temperature will be reseted
 };
 
-/*-----------FUNKCIA-NA-SNÍMANIE-DST-TLACIDLA----------------------*/
-//void DSTcheck(){
-////   int buttonDST = digitalRead(2);
-//   int buttonDST = HIGH; // Temporary disabling of dst
-//   if (buttonDST == LOW){
-//      DST = !DST;
-//      dotColor = DST ? CRGB::Gold : CRGB::Red;
-//      Serial.println(dotColor);
-//      delay(3000);   
-//   };
-//  }
 
+/**
+ * @brief Serial Printers
+ * 
+ */
 
-/*-----------FUNKCIA-NA-SNÍMANIE-UPRAVOVACÍCH-TLAČIDIEL----------------------*/
-// void TimeAdjust(){
-//  int buttonH = digitalRead(HUR_PIN);
-//  int buttonM = digitalRead(MIN_PIN);
-//  if (buttonH == LOW || buttonM == LOW){
-//    delay(500);
-//    tmElements_t Now;
-//    RTC.read(Now);
-//    int hour=Now.Hour;
-//    int minutes=Now.Minute;
-//    int second =Now.Second;
-//      if (buttonH == LOW){
-//        if (Now.Hour== 23){Now.Hour=0;}
-//          else {Now.Hour += 1;};
-//        }else {
-//          if (Now.Minute== 59){Now.Minute=0;}
-//          else {Now.Minute += 1;};
-//          };
-//    RTC.write(Now); 
-//    }
-//  }
-
-
-void syncGPSTime() {
-  while (!TimeSynced && SoftSerial.available() > 0){
-      Serial.println("Syncing");
-      // Precitanie cosu faunoveho
-      if (gps.encode(SoftSerial.read())){
-        
-        // .. Get Time from gps module
-        if (gps.time.isValid()){
-          Minute = gps.time.minute();
-          Second = gps.time.second();
-          Hour   = gps.time.hour();
-        }
-
-        // .. Get date drom GPS module
-        if (gps.date.isValid()){
-           Day   = gps.date.day();
-           Month = gps.date.month();
-           Year  = gps.date.year();
-        }
-
-        // ..
-        if(Day != -1 && Hour != prev_hour){  
-          prev_hour = Hour;
-          
-          // set current UTC time
-          setTime(Hour, Minute, Second, Day, Month, Year);
-          adjustTime(time_offset -1);
-
-          Serial.println("Time sucessfully synced");
-          TimeSynced = true;
-
-          Day = -1;
-          Hour = -1;
-        }
-       }
-    }  
-}
-
-  // Vypis cas kazdu minutu
-  byte prev_minute = 0;
+  long prevSerialSecond = 0;
   void serialPrintTime(){
-    if(prev_minute != minute()){
-        prev_minute = minute();
-      
-        Serial.print(hour());
-        Serial.print(":");
-        Serial.print(minute());
-        Serial.print(":");
-        Serial.println(second());
+    long currMillis = millis();
+
+    if(currMillis - prevSerialSecond  > 1000 ) {
+      prevSerialSecond = currMillis;
+      Serial.print(hour());
+      Serial.print(":");
+      Serial.print(minute());
+      Serial.print(":");
+      Serial.print(second());
+      Serial.print(":offset:");
+      Serial.println(time_offset);
     }
   }
 
+
   void serialPrintTemperature(){
-     Serial.print(sensors.getTempCByIndex(0));
-     Serial.println(" Stupnov");
+    long currMillis = millis();
+
+    if(currMillis - prevSerialSecond  > 1000){
+      prevSerialSecond = currMillis;
+
+      Serial.print(sensors.getTempCByIndex(0));
+      Serial.println(" Stupnov");
+    }
   }
 
+  /**
+   * @brief Function for checking and vlidating gps
+   * @return if gps was successfully read
+   * 
+   * @author https://forum.arduino.cc/t/tinygps-time-intervals/1116809/10
+   */
 
-  void loop(){
-     // .. Handle offset of a clocks
-     if(digitalRead(SUMMER_TIME_BUTTON)== HIGH && time_offset != SUMMER_OFFSET){
-      time_offset = SUMMER_OFFSET;
-     }
+  bool readGps() {
+    long start = millis();
+    bool gpsEncodeComplete = false;
 
-     if(digitalRead(SUMMER_TIME_BUTTON)== LOW && time_offset != WINTER_OFFSET){
-      time_offset = SUMMER_OFFSET;
-     }
-    
-     // .. Ensure dot is flashing
+    do { // .. Loop until gps data was successfully read and encoded from GPS module
+      if (!SoftSerial.available()) {
+        // .. No new data available. Lets continue
+        continue;
+      }
+
+      gpsEncodeComplete = gps.encode(SoftSerial.read());
+
+      if (!gpsEncodeComplete) {
+        // Data is incomplete. Lets continue 
+        continue;
+      }
+    } while (!gpsEncodeComplete && millis() - start <= SYNC_TIME);  
+
+    return gpsEncodeComplete;
+  }
+
+  void updateGpsTimeAndDate() {
+    // .. Get Time from gps module
+    if (gps.time.isValid()){
+      Minute = gps.time.minute();
+      Second = gps.time.second();
+      Hour = gps.time.hour();
+    }
+
+    // .. Get date drom GPS module
+    if (gps.date.isValid()){
+      Day = gps.date.day();
+      Month = gps.date.month();
+      Year = gps.date.year();
+    }
+
+    if(Minute && Second && Hour && Day && Month && Year){  
+      setTime(Hour, Minute, Second, Day, Month, Year);
+      adjustTime(time_offset -1);
+
+      Minute = Second = Hour = Day = Month = Year = -1;
+    }
+  }
+
+  /**
+   * @brief Handlers used to create procedure
+   * 
+   */
+
+  // .. Ensure dot is flashing
+  void handleDotChange() {
      if(second() % 2 == 0){
         Dot = false;
      } else {
         Dot = true;
      }
+  }
 
-     // .. Removing delay caused by system
-     if(second() % 58 == 0){
-        adjustTime(1);
-     }
+  // .. Handle offset of a clocks
+  void handleTimeOffsetChange() {
+    if(digitalRead(SUMMER_TIME_BUTTON)== LOW && time_offset != SUMMER_OFFSET){
+      time_offset = SUMMER_OFFSET;
+    }
 
-     // .. Decide to sync every hour
-     if(prev_hour != (hour() - time_offset / 3600)){
-      TimeSynced = false; 
-     }
+    if(digitalRead(SUMMER_TIME_BUTTON)== HIGH && time_offset != WINTER_OFFSET){
+      time_offset = WINTER_OFFSET;
+    }
+  }
 
-     // .. Main loop
-     if(TimeSynced){
-        BrightnessCheck();
-        ColorChange();
-        showTempCheck();
+  // .. Handle brightness check
+  void handleBrightnessChange(){
+    const byte sensorPin = BRI_PIN; // light sensor pin
 
-        // ..
-        if(TempShow == true){
-          long currMillis = millis();
-          if(currMillis - prevTempMillis >= intervalShowTempFor ) TempShow = false;
-          
-          TempToArray();
-          //serialPrintTemperature();
+    //načítanie jasu + formovanie do potrebnej hodnoty
+    int sensorValue = analogRead(sensorPin); 
+    sensorValue = map(sensorValue, 10, 900, 255, 40);
+    
+    //nastavenie jasu ak je DST povolene
+    if(DST){
+      LEDS.setBrightness(sensorValue);
+    } else {
+      LEDS.setBrightness(180);
+    }
+  };
 
-        } else {
-          serialPrintTime();
-          FormatTime((hour()*100) + minute());
-        } 
-      
-        LEDS.show();   
-     } else {
-      // .. Sync the time through GPS
-      syncGPSTime();
-     }
+  void handleColorChange() {
+    long currMillis = millis();
+
+    if (currMillis - prevColorMillis >= intervalColor ){
+      prevColorMillis = currMillis;
+
+      if(indexOfColor > 2){
+        indexOfColor = 0;
+      }
+
+    //prepisanie farby
+    ledColor = ColorTable[indexOfColor];
+    dotColor = ColorTable[indexOfColor];
+
+    //zaistenie zmeny farby podla indexu
+    indexOfColor++;
+    }
+  };
+
+  // .. Handle if temp should be changed
+  bool shouldShowTemp() {
+    long currMillis = millis();
+
+    // .. Wait 90 seconds for set showing to true + store when it started
+    if(!ShowingTemp && currMillis - prevTempMillis >= intervalTemp) {
+      prevTempMillis = currMillis;
+      ShowingTemp = true;
+    } 
+    
+    // .. Hide temp when it has been showing for 10 sec
+    if(ShowingTemp && currMillis - prevTempMillis >= intervalShowTempFor) {
+      ShowingTemp = false;
+    }
+  
+    return ShowingTemp;
+ };
+
+  /**
+   * @brief Main loop function
+   * 
+   */
+  void loop(){
+    handleTimeOffsetChange();
+    handleBrightnessChange();
+    handleColorChange();
+
+    bool showTemp = shouldShowTemp();
+    if(showTemp) {
+      ledPrintTemperature();
+      serialPrintTemperature();
+    } else {
+      bool gpsRead = readGps();
+      if(gpsRead) {
+        updateGpsTimeAndDate();
+      }
+
+      if(timeStatus()!= timeNotSet && now() != prevDisplay) {
+        prevDisplay = now();
+        handleDotChange();
+
+        serialPrintTime();
+        ledPrintTime((hour()*100) + minute());
+      }
+    }
+
+    LEDS.show();
    }
